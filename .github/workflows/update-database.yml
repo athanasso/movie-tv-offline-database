@@ -1,0 +1,52 @@
+name: Weekly Movie & TV Database Update
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # Every Monday at 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Database
+        run: node --max-old-space-size=4096 build_database.js
+
+      - name: Create or Update GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(cat dist/tag.txt)
+          echo "Publishing release ${TAG}..."
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "Release ${TAG} already exists. Updating release notes and uploading assets..."
+            gh release edit "${TAG}" --notes-file dist/release_notes.md
+            gh release upload "${TAG}" \
+              dist/movie-tv-offline-database-minified.json \
+              dist/movie-tv-offline-database.json \
+              dist/movie-tv-mapping.json \
+              dist/movie-tv-ratings.json \
+              --clobber
+          else
+            echo "Creating new release ${TAG}..."
+            gh release create "${TAG}" \
+              dist/movie-tv-offline-database-minified.json \
+              dist/movie-tv-offline-database.json \
+              dist/movie-tv-mapping.json \
+              dist/movie-tv-ratings.json \
+              --title "Release ${TAG}" \
+              --notes-file dist/release_notes.md \
+              --latest
+          fi
