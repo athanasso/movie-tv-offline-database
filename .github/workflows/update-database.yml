@@ -1,8 +1,8 @@
-name: Weekly Movie & TV Database Update
+name: Daily Movie & TV Database Update
 
 on:
   schedule:
-    - cron: '0 4 * * 1' # Every Monday at 04:00 UTC
+    - cron: '0 4 * * *' # Every day at 04:00 UTC
   workflow_dispatch:
 
 jobs:
