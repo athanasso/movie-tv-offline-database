@@ -30,23 +30,65 @@ jobs:
         run: |
           TAG=$(cat dist/tag.txt)
           echo "Publishing release ${TAG}..."
+
+          # 1. Ensure release exists (retry on transient GitHub API HTTP 500 errors)
           if gh release view "${TAG}" > /dev/null 2>&1; then
-            echo "Release ${TAG} already exists. Updating release notes and uploading assets..."
+            echo "Release ${TAG} already exists. Updating release notes..."
             gh release edit "${TAG}" --notes-file dist/release_notes.md
-            gh release upload "${TAG}" \
-              dist/movie-tv-offline-database-minified.json \
-              dist/movie-tv-offline-database.json \
-              dist/movie-tv-mapping.json \
-              dist/movie-tv-ratings.json \
-              --clobber
           else
             echo "Creating new release ${TAG}..."
-            gh release create "${TAG}" \
-              dist/movie-tv-offline-database-minified.json \
-              dist/movie-tv-offline-database.json \
-              dist/movie-tv-mapping.json \
-              dist/movie-tv-ratings.json \
-              --title "Release ${TAG}" \
-              --notes-file dist/release_notes.md \
-              --latest
+            CREATED=false
+            for i in 1 2 3 4 5; do
+              echo "Attempt $i: Creating release ${TAG}..."
+              if gh release create "${TAG}" \
+                --title "Release ${TAG}" \
+                --notes-file dist/release_notes.md \
+                --latest; then
+                CREATED=true
+                break
+              fi
+              # Check if release was created despite return code
+              if gh release view "${TAG}" > /dev/null 2>&1; then
+                echo "Release ${TAG} exists after attempt $i."
+                CREATED=true
+                break
+              fi
+              echo "Release creation attempt $i failed. Retrying in 15s..."
+              sleep 15
+            done
+
+            if [ "$CREATED" = false ]; then
+              echo "Failed to create release ${TAG} after 5 attempts."
+              exit 1
+            fi
           fi
+
+          # 2. Upload distribution assets individually with retry
+          echo "Uploading distribution assets..."
+          ASSETS=(
+            "dist/movie-tv-offline-database-minified.json"
+            "dist/movie-tv-offline-database.json"
+            "dist/movie-tv-mapping.json"
+            "dist/movie-tv-ratings.json"
+          )
+
+          for file in "${ASSETS[@]}"; do
+            if [ -f "$file" ]; then
+              echo "Uploading $(basename "$file")..."
+              UPLOADED=false
+              for i in 1 2 3 4 5; do
+                if gh release upload "${TAG}" "$file" --clobber; then
+                  UPLOADED=true
+                  break
+                fi
+                echo "Upload attempt $i for $(basename "$file") failed. Retrying in 15s..."
+                sleep 15
+              done
+              if [ "$UPLOADED" = false ]; then
+                echo "Failed to upload $file after 5 attempts."
+                exit 1
+              fi
+            fi
+          done
+
+          echo "Release ${TAG} published successfully with all assets."
